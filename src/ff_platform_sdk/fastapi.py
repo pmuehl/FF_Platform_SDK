@@ -1,4 +1,4 @@
-"""Bausteine für FastAPI-Apps: Benutzer aus dem Token, Rollenprüfung, interne Endpunkte."""
+"""Building blocks for FastAPI apps: user from the token, role check, internal endpoints."""
 
 import json
 from collections.abc import Callable
@@ -6,81 +6,81 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
-from . import intern
-from .auth import AngemeldeterBenutzer, TokenFehler, TokenPruefer
-from .stammdaten import Spiegel, verarbeite
+from . import internal
+from .auth import AuthenticatedUser, TokenError, TokenVerifier
+from .master_data import Mirror, process
 
 
-def aktueller_benutzer(pruefer: TokenPruefer) -> Callable[..., AngemeldeterBenutzer]:
-    """Abhängigkeit: liest `Authorization: Bearer <ID-Token>` und prüft es.
+def current_user(verifier: TokenVerifier) -> Callable[..., AuthenticatedUser]:
+    """Dependency: reads `Authorization: Bearer <ID token>` and verifies it.
 
-    401 nur bei fehlendem, abgelaufenem oder ungültigem Token — die Clients
-    leiten dann zum Login der Plattform.
+    401 only for a missing, expired or invalid token — clients then redirect
+    to the platform's login.
     """
 
-    def abhaengigkeit(authorization: str | None = Header(default=None)) -> AngemeldeterBenutzer:
+    def dependency(authorization: str | None = Header(default=None)) -> AuthenticatedUser:
         token = authorization[7:] if authorization and authorization.startswith("Bearer ") else None
         try:
-            return pruefer.pruefe(token)
-        except TokenFehler as fehler:
-            raise HTTPException(401, "Nicht angemeldet") from fehler
+            return verifier.verify(token)
+        except TokenError as error:
+            raise HTTPException(401, "Not authenticated") from error
 
-    return abhaengigkeit
+    return dependency
 
 
-def require_rolle(
-    benutzer: Callable[..., AngemeldeterBenutzer], modul: str, *rollen: str
-) -> Callable[..., AngemeldeterBenutzer]:
-    """Abhängigkeit: Zugriff nur mit einer der Rollen im Modul.
+def require_role(
+    user: Callable[..., AuthenticatedUser], module: str, *roles: str
+) -> Callable[..., AuthenticatedUser]:
+    """Dependency: access only with one of the roles in the module.
 
-    Ohne Zugriff auf das Modul: 404 (verrät nicht, was gebucht ist);
-    mit Zugriff, aber falscher Rolle: 403.
+    Without access to the module: 404 (does not reveal what is enabled);
+    with access but the wrong role: 403.
     """
 
-    def abhaengigkeit(b: AngemeldeterBenutzer = Depends(benutzer)) -> AngemeldeterBenutzer:  # noqa: B008
-        if not b.hat_modul(modul):
-            raise HTTPException(404, "Nicht gefunden")
-        if not b.hat_rolle(modul, *rollen):
-            raise HTTPException(403, "Keine Berechtigung")
-        return b
+    def dependency(u: AuthenticatedUser = Depends(user)) -> AuthenticatedUser:  # noqa: B008
+        if not u.has_module(module):
+            raise HTTPException(404, "Not found")
+        if not u.has_role(module, *roles):
+            raise HTTPException(403, "Forbidden")
+        return u
 
-    return abhaengigkeit
+    return dependency
 
 
-def intern_router(
-    *, geheimnis: str, manifest: dict[str, Any] | Callable[[], dict[str, Any]], spiegel: Spiegel
+def internal_router(
+    *, secret: str, manifest: dict[str, Any] | Callable[[], dict[str, Any]], mirror: Mirror
 ) -> APIRouter:
-    """Die internen Endpunkte, die die Plattform aufruft — alle signiert.
+    """The internal endpoints called by the platform — all signed.
 
     `GET /intern/manifest`, `POST /intern/mandant-init`, `POST /intern/stammdaten`.
-    Im Deployment darf `/intern/*` nicht nach außen geroutet werden.
+    In the deployment `/intern/*` must not be routed to the outside.
     """
-    router = APIRouter(prefix="/intern", tags=["intern"])
+    router = APIRouter(prefix="/intern", tags=["internal"])
 
-    async def signiert(request: Request) -> bytes:
+    async def signed(request: Request) -> bytes:
         body = await request.body()
-        if not intern.pruefen(
-            geheimnis,
+        if not internal.verify(
+            secret,
             request.method,
             request.url.path,
             body,
-            request.headers.get(intern.KOPF_ZEIT),
-            request.headers.get(intern.KOPF_SIGNATUR),
+            request.headers.get(internal.HEADER_TIMESTAMP),
+            request.headers.get(internal.HEADER_SIGNATURE),
         ):
-            raise HTTPException(401, "Signatur ungültig")
+            raise HTTPException(401, "Invalid signature")
         return body
 
     @router.get("/manifest")
-    async def manifest_liefern(_: bytes = Depends(signiert)) -> dict[str, Any]:
+    async def get_manifest(_: bytes = Depends(signed)) -> dict[str, Any]:
         return manifest() if callable(manifest) else manifest
 
     @router.post("/mandant-init")
-    async def mandant_init(body: bytes = Depends(signiert)) -> dict[str, bool]:
-        spiegel.mandant_init(json.loads(body)["tenant"])
+    async def tenant_init(body: bytes = Depends(signed)) -> dict[str, bool]:
+        mirror.tenant_init(json.loads(body)["tenant"])
         return {"ok": True}
 
     @router.post("/stammdaten")
-    async def stammdaten(body: bytes = Depends(signiert)) -> dict[str, Any]:
-        return verarbeite(spiegel, json.loads(body))
+    async def master_data(body: bytes = Depends(signed)) -> dict[str, Any]:
+        return process(mirror, json.loads(body))
 
     return router

@@ -2,37 +2,37 @@ import time
 
 import pytest
 
-from ff_platform_sdk.auth import TokenFehler
+from ff_platform_sdk.auth import TokenError
 
-from .conftest import Schluessel
+from .conftest import Keys
 
 
-def test_gueltiges_token_ergibt_den_benutzer(pruefer, schluessel):
-    b = pruefer.pruefe(schluessel.token())
-    assert (b.tenant, b.tenant_slug, b.benutzername) == ("tenant-a", "ff-a", "anna")
-    assert b.hat_modul("gegenstelle") and not b.hat_modul("wiki")
-    assert b.hat_rolle("gegenstelle", "leser", "admin")
-    assert not b.hat_rolle("gegenstelle", "admin")
-    assert not b.hat_rolle("wiki")
+def test_valid_token_yields_the_user(verifier, keys):
+    u = verifier.verify(keys.token())
+    assert (u.tenant, u.tenant_slug, u.username) == ("tenant-a", "ff-a", "anna")
+    assert u.has_module("counterpart") and not u.has_module("wiki")
+    assert u.has_role("counterpart", "reader", "admin")
+    assert not u.has_role("counterpart", "admin")
+    assert not u.has_role("wiki")
 
 
 @pytest.mark.parametrize(
     "claims",
     [
-        {"exp": int(time.time()) - 600},  # abgelaufen
-        {"aud": "andere-app"},  # für eine andere App ausgestellt
-        {"iss": "https://boese.test/o"},  # fremder Aussteller
+        {"exp": int(time.time()) - 600},  # expired
+        {"aud": "other-app"},  # issued for another app
+        {"iss": "https://evil.test/o"},  # foreign issuer
     ],
 )
-def test_ungueltige_tokens(pruefer, schluessel, claims):
-    with pytest.raises(TokenFehler):
-        pruefer.pruefe(schluessel.token(**claims))
+def test_invalid_tokens(verifier, keys, claims):
+    with pytest.raises(TokenError):
+        verifier.verify(keys.token(**claims))
 
 
-def test_fremde_signatur_und_fehlendes_token(pruefer):
-    with pytest.raises(TokenFehler):
-        pruefer.pruefe(Schluessel().token())  # mit einem anderen Schlüssel signiert
-    with pytest.raises(TokenFehler):
-        pruefer.pruefe(None)
-    with pytest.raises(TokenFehler):
-        pruefer.pruefe("kein.jwt")
+def test_foreign_signature_and_missing_token(verifier):
+    with pytest.raises(TokenError):
+        verifier.verify(Keys().token())  # signed with a different key
+    with pytest.raises(TokenError):
+        verifier.verify(None)
+    with pytest.raises(TokenError):
+        verifier.verify("not.a.jwt")

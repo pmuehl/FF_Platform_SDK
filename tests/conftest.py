@@ -4,53 +4,53 @@ import jwt
 import pytest
 from cryptography.hazmat.primitives.asymmetric import rsa
 
-from ff_platform_sdk.auth import TokenPruefer
+from ff_platform_sdk.auth import TokenVerifier
 
-AUSSTELLER = "https://platform.test/o"
-CLIENT = "gegenstelle"
+ISSUER = "https://platform.test/o"
+CLIENT = "counterpart"
 
 
-class Schluessel:
-    """Ersetzt den JWKS-Abruf: liefert den öffentlichen Schlüssel der Test-Plattform."""
+class Keys:
+    """Replaces the JWKS request: returns the public key of the test platform."""
 
     def __init__(self):
-        self.privat = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        self.private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
 
     def get_signing_key_from_jwt(self, token):
-        class Ergebnis:
-            key = self.privat.public_key()
+        class Result:
+            key = self.private.public_key()
 
-        return Ergebnis()
+        return Result()
 
     def token(self, **claims) -> str:
-        jetzt = int(time.time())
+        now = int(time.time())
         return jwt.encode(
             {
-                "iss": AUSSTELLER,
+                "iss": ISSUER,
                 "aud": CLIENT,
-                "sub": "konto-1",
-                "iat": jetzt,
-                "exp": jetzt + 900,
+                "sub": "account-1",
+                "iat": now,
+                "exp": now + 900,
                 "tenant": "tenant-a",
                 "tenant_slug": "ff-a",
                 "mitgliedschaft": "m-1",
                 "mitglied": None,
-                "name": "Anna Beispiel",
+                "name": "Anna Example",
                 "preferred_username": "anna",
-                "module": ["gegenstelle"],
-                "rollen": {"gegenstelle": ["leser"]},
+                "module": ["counterpart"],
+                "rollen": {"counterpart": ["reader"]},
                 **claims,
             },
-            self.privat,
+            self.private,
             algorithm="RS256",
         )
 
 
 @pytest.fixture
-def schluessel() -> Schluessel:
-    return Schluessel()
+def keys() -> Keys:
+    return Keys()
 
 
 @pytest.fixture
-def pruefer(schluessel) -> TokenPruefer:
-    return TokenPruefer(AUSSTELLER, CLIENT, jwks_client=schluessel)
+def verifier(keys) -> TokenVerifier:
+    return TokenVerifier(ISSUER, CLIENT, jwks_client=keys)

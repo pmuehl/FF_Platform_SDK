@@ -1,60 +1,76 @@
 # FF_Platform_SDK
 
-Python-Paket `ff-platform-sdk` (Import `ff_platform_sdk`): bindet die FF-Apps
-(Dashboard, Einsatzleitung, wiki_tickets) an die **FF Plattform** an.
-Konzept: `FF_Platform/docs/mandantenfaehigkeit-plattform.md`, Kapitel 9.
+Python package `ff-platform-sdk` (import `ff_platform_sdk`): connects the FF apps
+(Dashboard, Einsatzleitung, wiki_tickets) to the **FF Platform**, the
+multi-tenant platform for volunteer fire brigades.
 
-**Stand: v0.1** — was die Plattform in Phase 2 abnimmt.
+**Status: v0.1** — the parts the platform verifies in its acceptance test.
 
-| Baustein | Inhalt |
+| Module | Contents |
 | --- | --- |
-| `auth` | ID-Token der Plattform prüfen (RS256 über JWKS) → `AngemeldeterBenutzer` mit Feuerwehr, Modulen, Rollen |
-| `intern` | HMAC-Signatur der internen Aufrufe (`/intern/*`) mit Zeitfenster gegen Wiederholung |
-| `stammdaten` | Empfänger des Stammdaten-Syncs: Upsert, „nicht mehr geliefert", Voll-Abgleich, Widerruf |
-| `fastapi` | Abhängigkeiten (`aktueller_benutzer`, `require_rolle`) und Router für `/intern/*` |
-| `testing.gegenstelle` | Test-Gegenstelle: verhält sich wie ein angebundenes Modul; die Plattform prüft damit ihren Sync |
+| `auth` | Verify the platform's ID token (RS256 via JWKS) → `AuthenticatedUser` with fire brigade, modules and roles |
+| `internal` | HMAC signature of the internal calls (`/intern/*`) with a time window against replay |
+| `master_data` | Receiver of the master data sync: upsert, "no longer delivered", full reconcile, revocation |
+| `fastapi` | Dependencies (`current_user`, `require_role`) and the router for `/intern/*` |
+| `testing.counterpart` | Test counterpart: behaves like a connected module; the platform tests its sync against it |
 
-Noch nicht enthalten (kommt mit der Umstellung der ersten App, Phase 1 und 3):
-Mandanten-Kontext und ORM-Filter (`tenant`, `orm`), Freischaltungs-Prüfung
-(`entitlements`), Spiegel-Tabellen für SQLAlchemy, Schreib-Client für die
-Stammdaten-API, die generische Leck-Test-Suite.
+Not included yet (comes with the migration of the first app):
+tenant context and ORM filter (`tenant`, `orm`), entitlement checks
+(`entitlements`), mirror tables for SQLAlchemy, a write client for the
+master data API, the generic tenant leak test suite.
 
-## Einbinden
+## Usage
 
 ```toml
-# pyproject.toml der App
+# pyproject.toml of the app
 dependencies = [
     "ff-platform-sdk[fastapi] @ git+https://github.com/pmuehl/FF_Platform_SDK.git@v0.1.0",
 ]
 ```
 
 ```python
-from ff_platform_sdk.auth import TokenPruefer
-from ff_platform_sdk.fastapi import aktueller_benutzer, intern_router, require_rolle
+from ff_platform_sdk.auth import TokenVerifier
+from ff_platform_sdk.fastapi import current_user, internal_router, require_role
 
-pruefer = TokenPruefer("https://platform.alarmboard.at/o", client_id="dashboard")
-benutzer = aktueller_benutzer(pruefer)
+verifier = TokenVerifier("https://platform.alarmboard.at/o", client_id="dashboard")
+user = current_user(verifier)
 
-@app.get("/api/fahrzeuge")
-def fahrzeuge(b = Depends(require_rolle(benutzer, "dashboard"))):
-    ...  # b.tenant ist die Feuerwehr — maßgeblich ist nur dieser geprüfte Claim
+@app.get("/api/vehicles")
+def vehicles(u = Depends(require_role(user, "dashboard"))):
+    ...  # u.tenant is the fire brigade — only this verified claim counts
 
 app.include_router(
-    intern_router(geheimnis=INTERN_GEHEIMNIS, manifest=MANIFEST, spiegel=MeinSpiegel())
+    internal_router(secret=INTERNAL_SECRET, manifest=MANIFEST, mirror=MyMirror())
 )
 ```
 
-- **Geheimnis:** steht in der Plattform unter Admin → Module → Modul →
-  „Geheimnis für interne Aufrufe". In der App als Umgebungsvariable.
-- **`/intern/*` darf nicht nach außen geroutet werden** (Traefik). Die Signatur
-  ist die zweite Sicherung, nicht die erste.
-- **Spiegel:** Die App implementiert das Protokoll `stammdaten.Spiegel` mit ihren
-  eigenen Tabellen. Die ID jedes Datensatzes ist die der Plattform. „Entfernt"
-  heißt markieren, nicht löschen — Fachdaten verweisen darauf.
-- **401** nur bei fehlendem, abgelaufenem oder ungültigem Token. Modul nicht
-  zugänglich → 404, falsche Rolle → 403.
+- **Secret:** shown in the platform under Admin → Module → the module →
+  "Geheimnis für interne Aufrufe". Pass it to the app as an environment variable.
+- **`/intern/*` must not be routed to the outside** (Traefik). The signature is
+  the second line of defence, not the first.
+- **Mirror:** the app implements the `master_data.Mirror` protocol with its own
+  tables. The ID of every record is the platform's ID. "Removed" means mark,
+  not delete — the app's own data refers to these records.
+- **401** only for a missing, expired or invalid token. Module not accessible
+  → 404, wrong role → 403.
 
-## Entwickeln
+## Wire format
+
+The Python API is English. The wire format is defined by the platform and uses
+German names; the SDK passes them through unchanged:
+
+- ID token claims: `tenant`, `tenant_slug`, `mitgliedschaft` (membership),
+  `mitglied` (member), `module` (modules), `rollen` (roles)
+- Headers: `X-FFP-Zeitstempel` (timestamp), `X-FFP-Signatur` (signature)
+- Sync payload: `ereignisse` (events), `entitaet` (entity), `typ` (type:
+  `upsert` or `entfernt`), `nutzlast` (payload), `bis` (up to),
+  `abgleich` (reconcile), `vollstaendig` (complete), `bestaetigt` (acknowledged)
+- Entities: `mitglied`, `fahrzeug` (vehicle), `zug` (platoon), `benutzer` (user),
+  `katalog_version`, `widerruf` (revocation)
+- Manifest keys: `schluessel` (key), `rollen`, `standard_konten`,
+  `schreibrechte`, `stammdaten_abos`, `modul_attribute`
+
+## Development
 
 ```bash
 uv venv -p 3.14 .venv
@@ -63,5 +79,5 @@ uv pip install --python .venv/bin/python -e ".[dev]"
 .venv/bin/ruff check . && .venv/bin/ruff format --check .
 ```
 
-Die Plattform prüft das SDK in ihrem Abnahmetest mit
-(`FF_Platform/backend/tests/test_sdk_gegenstelle.py`, dort `make sdk`).
+The platform runs the SDK in its acceptance test
+(`FF_Platform/backend/tests/test_sdk_gegenstelle.py`, `make sdk` there).

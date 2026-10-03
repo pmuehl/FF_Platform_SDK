@@ -1,15 +1,16 @@
-"""SDK der FF Plattform für die angebundenen Apps (Dashboard, Einsatzleitung, wiki_tickets).
+"""SDK of the FF Platform for the connected apps (Dashboard, Einsatzleitung, wiki_tickets).
 
-v0.1 enthält, was die Plattform in Phase 2 abnimmt:
+v0.1 contains the parts the platform verifies in its acceptance test:
 
-- `auth`        Prüfung des ID-Tokens der Plattform über JWKS → `AngemeldeterBenutzer`
-- `intern`      HMAC-Signatur der internen Aufrufe (/intern/*)
-- `stammdaten`  Empfänger des Stammdaten-Syncs (Upsert, „nicht mehr geliefert", Abgleich, Widerruf)
-- `fastapi`     Abhängigkeiten und Router für FastAPI-Apps
-- `testing`     Test-Gegenstelle, gegen die die Plattform ihren Sync prüft
+- `auth`         verification of the platform's ID token via JWKS → `AuthenticatedUser`
+- `internal`     HMAC signature of the internal calls (/intern/*)
+- `master_data`  receiver of the master data sync (upsert, "no longer delivered",
+                 reconcile, revocation)
+- `fastapi`      dependencies and router for FastAPI apps
+- `testing`      test counterpart the platform tests its sync against
 
-Mandanten-Kontext, ORM-Filter, Freischaltungs-Prüfung und die Leck-Test-Suite
-kommen mit der Umstellung der ersten App (Phase 1 und 3).
+Tenant context, ORM filter, entitlement checks and the leak test suite come
+with the migration of the first app.
 """
 
 __version__ = "0.1.0"

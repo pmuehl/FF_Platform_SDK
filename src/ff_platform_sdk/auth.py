@@ -1,11 +1,11 @@
-"""Prüfung des ID-Tokens der Plattform (RS256, über JWKS).
+"""Verification of the platform's ID token (RS256, via JWKS).
 
-Die App meldet Benutzer per OIDC an der Plattform an (Authorization Code mit
-PKCE) und bekommt ein ID-Token, 15 Minuten gültig. Darin stehen Feuerwehr,
-Module und Rollen. Dieses Token prüft die App bei jedem Aufruf selbst — ohne
-Rückfrage bei der Plattform.
+The app signs users in at the platform via OIDC (authorization code with PKCE)
+and receives an ID token, valid for 15 minutes. It carries the fire brigade,
+the modules and the roles. The app verifies this token itself on every call —
+without asking the platform.
 
-Maßgeblich ist ausschließlich der geprüfte Claim `tenant`, nie die Domain.
+Only the verified claim `tenant` counts, never the domain.
 """
 
 from dataclasses import dataclass, field
@@ -15,86 +15,87 @@ import jwt
 from jwt import PyJWKClient
 
 
-class TokenFehler(Exception):
-    """Token fehlt, ist abgelaufen oder ungültig → HTTP 401."""
+class TokenError(Exception):
+    """Token is missing, expired or invalid → HTTP 401."""
 
 
 @dataclass(frozen=True)
-class AngemeldeterBenutzer:
-    identitaet: str  # sub
+class AuthenticatedUser:
+    subject: str  # sub
     tenant: str
     tenant_slug: str
-    mitgliedschaft: str
-    mitglied: str | None
+    membership: str
+    member: str | None
     name: str
-    benutzername: str
-    module: tuple[str, ...]
-    rollen: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    username: str
+    modules: tuple[str, ...]
+    roles: dict[str, tuple[str, ...]] = field(default_factory=dict)
 
-    def hat_modul(self, modul: str) -> bool:
-        return modul in self.module
+    def has_module(self, module: str) -> bool:
+        return module in self.modules
 
-    def hat_rolle(self, modul: str, *rollen: str) -> bool:
-        """Hat der Benutzer im Modul eine der genannten Rollen (ohne Angabe: irgendeine)?"""
-        vorhanden = self.rollen.get(modul, ())
-        return bool(set(vorhanden) & set(rollen)) if rollen else bool(vorhanden)
+    def has_role(self, module: str, *roles: str) -> bool:
+        """Does the user have one of the given roles in the module (none given: any role)?"""
+        present = self.roles.get(module, ())
+        return bool(set(present) & set(roles)) if roles else bool(present)
 
 
-class TokenPruefer:
-    """Prüft ID-Tokens gegen den öffentlichen Schlüssel der Plattform.
+class TokenVerifier:
+    """Verifies ID tokens against the platform's public key.
 
-    aussteller: Issuer der Plattform, z. B. https://platform.alarmboard.at/o
-    client_id:  Client der App (steht als `aud` im Token)
+    issuer:     issuer of the platform, e.g. https://platform.alarmboard.at/o
+    client_id:  client of the app (the `aud` of the token)
 
-    Die Schlüssel werden zwischengespeichert; wechselt die Plattform den
-    Schlüssel, lädt der Prüfer bei unbekannter `kid` neu.
+    Keys are cached; when the platform rotates its key, the verifier reloads
+    on an unknown `kid`.
     """
 
     def __init__(
         self,
-        aussteller: str,
+        issuer: str,
         client_id: str,
         *,
         jwks_url: str | None = None,
         jwks_client: Any = None,
-        toleranz: int = 30,
+        leeway: int = 30,
     ):
-        self.aussteller = aussteller.rstrip("/")
+        self.issuer = issuer.rstrip("/")
         self.client_id = client_id
-        self.toleranz = toleranz
+        self.leeway = leeway
         self._jwks = jwks_client or PyJWKClient(
-            jwks_url or f"{self.aussteller}/.well-known/jwks.json",
+            jwks_url or f"{self.issuer}/.well-known/jwks.json",
             cache_keys=True,
             lifespan=3600,
         )
 
-    def pruefe(self, token: str | None) -> AngemeldeterBenutzer:
+    def verify(self, token: str | None) -> AuthenticatedUser:
         if not token:
-            raise TokenFehler("Token fehlt")
+            raise TokenError("token missing")
         try:
-            schluessel = self._jwks.get_signing_key_from_jwt(token).key
+            key = self._jwks.get_signing_key_from_jwt(token).key
             claims = jwt.decode(
                 token,
-                schluessel,
+                key,
                 algorithms=["RS256"],
                 audience=self.client_id,
-                issuer=self.aussteller,
-                leeway=self.toleranz,
+                issuer=self.issuer,
+                leeway=self.leeway,
                 options={"require": ["exp", "iat", "sub", "aud", "iss"]},
             )
-        except jwt.PyJWTError as fehler:
-            raise TokenFehler(str(fehler)) from fehler
+        except jwt.PyJWTError as error:
+            raise TokenError(str(error)) from error
         try:
-            return AngemeldeterBenutzer(
-                identitaet=claims["sub"],
+            # claim names are the platform's wire format
+            return AuthenticatedUser(
+                subject=claims["sub"],
                 tenant=claims["tenant"],
                 tenant_slug=claims["tenant_slug"],
-                mitgliedschaft=claims["mitgliedschaft"],
-                mitglied=claims.get("mitglied"),
+                membership=claims["mitgliedschaft"],
+                member=claims.get("mitglied"),
                 name=claims.get("name", ""),
-                benutzername=claims.get("preferred_username", ""),
-                module=tuple(claims.get("module", ())),
-                rollen={m: tuple(r) for m, r in claims.get("rollen", {}).items()},
+                username=claims.get("preferred_username", ""),
+                modules=tuple(claims.get("module", ())),
+                roles={m: tuple(r) for m, r in claims.get("rollen", {}).items()},
             )
-        except KeyError as fehler:
-            raise TokenFehler(f"Claim fehlt: {fehler}") from fehler
+        except KeyError as error:
+            raise TokenError(f"claim missing: {error}") from error

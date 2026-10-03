@@ -1,1 +1,1 @@
-"""Werkzeuge für Tests — in der Plattform und in den Apps."""
+"""Tools for tests — in the platform and in the apps."""
