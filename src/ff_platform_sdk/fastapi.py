@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request
 
 from . import internal
 from .auth import AuthenticatedUser, TokenError, TokenVerifier
+from .changelog import Changelog
 from .master_data import Mirror, process
 
 
@@ -48,11 +49,16 @@ def require_role(
 
 
 def internal_router(
-    *, secret: str, manifest: dict[str, Any] | Callable[[], dict[str, Any]], mirror: Mirror
+    *,
+    secret: str,
+    manifest: dict[str, Any] | Callable[[], dict[str, Any]],
+    mirror: Mirror,
+    changelog: Changelog | None = None,
 ) -> APIRouter:
     """The internal endpoints called by the platform — all signed.
 
-    `GET /intern/manifest`, `POST /intern/mandant-init`, `POST /intern/stammdaten`.
+    `GET /intern/manifest`, `POST /intern/mandant-init`, `POST /intern/stammdaten`
+    and, if a changelog is given, `GET /intern/changelog`.
     In the deployment `/intern/*` must not be routed to the outside.
     """
     router = APIRouter(prefix="/intern", tags=["internal"])
@@ -82,5 +88,11 @@ def internal_router(
     @router.post("/stammdaten")
     async def master_data(body: bytes = Depends(signed)) -> dict[str, Any]:
         return process(mirror, json.loads(body))
+
+    if changelog is not None:
+
+        @router.get("/changelog")
+        async def get_changelog(_: bytes = Depends(signed)) -> dict[str, Any]:
+            return changelog.as_response()
 
     return router

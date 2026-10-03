@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "ff-platform-sdk"
-version = "0.1.0"
+version = "0.2.0"
 description = "Connects the FF apps to the FF Platform: token verification, signed internal calls, master data sync."
 readme = "README.md"
 requires-python = ">=3.11"

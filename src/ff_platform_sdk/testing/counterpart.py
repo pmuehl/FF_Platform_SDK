@@ -13,6 +13,7 @@ from typing import Any
 from fastapi import Depends, FastAPI
 
 from ..auth import AuthenticatedUser, TokenVerifier
+from ..changelog import Changelog, parse
 from ..fastapi import current_user, internal_router
 from ..master_data import InMemoryMirror
 
@@ -41,6 +42,18 @@ MANIFEST: dict[str, Any] = {
     "modul_attribute": {},
 }
 
+CHANGELOG = """\
+## 1.1.0 — 2026-10-03: Zweite Version
+### Neu
+- Die Gegenstelle liefert ihren Changelog.
+### Behoben
+- Ein Fehler,
+  der über zwei Zeilen beschrieben ist.
+
+## 1.0.0 — 2026-09-01
+- Erste Version.
+"""
+
 
 @dataclass
 class Counterpart:
@@ -48,11 +61,19 @@ class Counterpart:
     manifest: dict[str, Any] = field(default_factory=lambda: dict(MANIFEST))
     verifier: TokenVerifier | None = None
     mirror: InMemoryMirror = field(default_factory=InMemoryMirror)
+    changelog: Changelog | None = field(
+        default_factory=lambda: Changelog("1.1.0", parse(CHANGELOG), build="build-1")
+    )
 
     def __post_init__(self) -> None:
         self.app = FastAPI(title="FF Platform — test counterpart")
         self.app.include_router(
-            internal_router(secret=self.secret, manifest=lambda: self.manifest, mirror=self.mirror)
+            internal_router(
+                secret=self.secret,
+                manifest=lambda: self.manifest,
+                mirror=self.mirror,
+                changelog=self.changelog,
+            )
         )
         if self.verifier is not None:
             user = current_user(self.verifier)
